@@ -108,3 +108,52 @@ contract FreelancingContract {
      * @param _candidate The address of the person who applied to a job
      * @param _id The id of the specific job
      */
+      function approveJob(address _candidate, uint _id) external onlyEmployer(_id) {
+        Job storage job = s_Jobs[_id];
+        if(!s_pending[_candidate]) {
+            revert FreelancingBasicContract__NotApplied();
+        }
+        job.pending = address(0);
+        job.employee = _candidate;
+        job.timePassed = block.timestamp + 30 days;
+        s_pending[_candidate] = false;
+    }
+    /**
+     * @dev The function used by the creator of the job to decline a canditate
+     * @param _candidate The adress of the person who applied to a job 
+     * @param _id The id of the specific job
+     */
+    function declineJob(address _candidate, uint _id) external onlyEmployer(_id) {
+         Job storage job = s_Jobs[_id];
+         if(!s_pending[_candidate]) {
+            revert FreelancingBasicContract__NotApplied();
+        }
+        s_pending[_candidate] = false;
+        job.pending = address(0);
+
+    }
+    /**
+     * @dev The function used to set an amount of money to be payed by the employer to the employee
+     * @param _value The amount of money the employer agreed to pay the employee in dolars
+     * @param _id The id of the specific job
+     */
+    function setPayCheck(uint256 _value, uint _id) external  onlyEmployer(_id) {
+        Job storage job = s_Jobs[_id];
+        if(!checkStatus(_id)) {
+            revert FreelancingBasicContract__JobNotApproved();
+        }
+        if(!job.acceptPay) {
+            revert FreelancingBasicContract__PayNotAccepted();
+        }
+        job.payCheckInUsd = _value;
+        job.acceptPay = false;
+    }
+    /**
+     * @dev The function used by the employee to accept a change of the amount of money that he is paid
+     * @param _id The Id of the specific job
+     * @return Returns a boolean that changes the job struct
+     */
+    function acceptChangeOfPayCheck(uint256 _id) external onlyEmployee(_id) returns(bool){
+        Job storage job = s_Jobs[_id];
+        return job.acceptPay = true;
+    }
