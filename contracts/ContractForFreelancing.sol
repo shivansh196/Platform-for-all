@@ -157,3 +157,55 @@ contract FreelancingContract {
         Job storage job = s_Jobs[_id];
         return job.acceptPay = true;
     }
+
+    /**
+     * @dev The function used by the employer to pay the employee every month
+     * @param _id The id of the specific job
+     */
+    function payEmployee(uint256 _id) external payable onlyEmployer(_id) {
+        Job storage job = s_Jobs[_id];
+        uint payCheck = job.payCheckInUsd * 1e18;
+        if(block.timestamp < job.timePassed) {
+            revert FreelancingBasicContract__PayOnlyOnceAMonth();
+        }
+        if(msg.value.getConversionRate() < payCheck) {
+            revert FreelancingBasicContract__NotEnoughEtherProvided();
+        }
+        job.timePassed = block.timestamp + 30 days;
+        (bool success, ) = payable(job.employee).call { value: msg.value }("");
+        require(success, "Transaction failed");
+        s_timesHasBeenPaid[job.employee] ++;
+    }
+    /**
+     * @dev The function used by the employer to dismiss the employee
+     * @param _id The id of the specific job
+     */
+    function dismissEmployee(uint _id) external onlyEmployer(_id) {
+        Job storage job = s_Jobs[_id];
+        if(s_timesHasBeenPaid[job.employee] < 1) {
+            revert FreelancingBasicContract__CantDismissInTheFirstMonth();
+        }
+        job.employee = address(0);
+    }
+    /**
+     * @dev The function that is used to get the conversion rate for the ETH/USD
+     * @param _id The id of the specific job
+     * @return Returns the amount of WEI the employer needs to pay the employee so the payEmployee() function will not revert
+     */
+     function convertEthInUsd(uint _id) external view returns(uint){
+        Job memory job = s_Jobs[_id];
+        uint oneEth = 1;
+        uint payCheck = job.payCheckInUsd * 1e18;
+        return payCheck / oneEth.getConversionRate();
+    }
+    /**
+     * @dev Function used internal to check if an employee exist at a specific job id
+     * @param _id The is of the specific job
+     * @return Returns a boolean that specific if an employee exists or not
+     */
+     function checkStatus(uint _id) internal view  returns(bool) {
+        Job memory job = s_Jobs[_id];
+        if(job.employee != address(0)) {
+            return true;
+        } return false;
+    }
