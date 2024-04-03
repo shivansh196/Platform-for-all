@@ -209,3 +209,62 @@ contract FreelancingContract {
             return true;
         } return false;
     }
+
+    ///Getter functions
+    function getPendingStatus(address _candidate) public view returns(bool) {
+        return s_pending[_candidate];
+    }
+
+    function getTimesHasBeenPaid(address _employee) public view returns(uint256) {
+        return s_timesHasBeenPaid[_employee];
+    }
+
+    function getNumberOfListedJobs() public view returns(uint256) {
+        return s_numberOfListedJobs;
+    }
+
+    function getJobs() public view returns(Job[] memory) {
+        Job[] memory allJobs = new Job[](s_numberOfListedJobs);
+
+        for(uint i=0; i<s_numberOfListedJobs; i++){
+            Job storage job = s_Jobs[i];
+            allJobs[i] = job;
+        }
+        return allJobs;
+    }
+    
+    function getApplicant(uint _id) public view returns(address){
+        Job memory job = s_Jobs[_id];
+        return job.pending;
+    }
+
+     function getJobTitle(uint _id) public view returns(string memory){
+        Job memory job = s_Jobs[_id];
+        return job.jobTitle;
+    }
+
+     function getJobDescription(uint _id) public view returns(string memory){
+        Job memory job = s_Jobs[_id];
+        return job.jobDescription;
+    }
+
+     function getEmployer(uint _id) public view returns(address){
+        Job memory job = s_Jobs[_id];
+        return job.employer;
+    }
+
+     function getEmployee(uint _id) public view returns(address){
+        Job memory job = s_Jobs[_id];
+        return job.employee;
+    }
+
+    function getAcceptPay(uint _id) public view returns(bool){
+        Job memory job = s_Jobs[_id];
+        return job.acceptPay;
+    }
+
+    function getPayCheckInUsd(uint _id) public view returns(uint){
+        Job memory job = s_Jobs[_id];
+        return job.payCheckInUsd;
+    }
+}
