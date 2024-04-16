@@ -1,126 +1,241 @@
 const {
-  time,
   loadFixture,
-} = require("@nomicfoundation/hardhat-toolbox/network-helpers");
+  time,
+  helpers
+} = require("@nomicfoundation/hardhat-network-helpers");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 const { expect } = require("chai");
 
-describe("Lock", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deployOneYearLockFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
 
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
+describe("Freelancing Contract", function () {
 
-    // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await ethers.getSigners();
+  async function deployFreelancingContract() {
 
-    const Lock = await ethers.getContractFactory("Lock");
-    const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+    const [employer, employee, otherAccount] = await ethers.getSigners();
 
-    return { lock, unlockTime, lockedAmount, owner, otherAccount };
+    const FreelancingContract = await ethers.getContractFactory("FreelancingContract");
+    const freelancingContract = await FreelancingContract.deploy();
+
+    return { freelancingContract, employer, employee, otherAccount };
   }
 
-  describe("Deployment", function () {
-    it("Should set the right unlockTime", async function () {
-      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
+  describe("Create new job and apply to it", function () {
+    it("Should create a job succesfully with the job title and description correctly", async function () {
+      const { freelancingContract, employer } = await loadFixture(deployFreelancingContract);
 
-      expect(await lock.unlockTime()).to.equal(unlockTime);
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      expect(await freelancingContract.getJobTitle(0)).to.equal("Java developer");
+      expect(await freelancingContract.getJobDescription(0)).to.equal("5 years of experience");
+      expect(await freelancingContract.getEmployer(0)).to.equal(employer.address);
+      expect(await freelancingContract.getNumberOfListedJobs()).to.equal(1);
+      
     });
 
-    it("Should set the right owner", async function () {
-      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
+    it("Should revert the apply function if the employer applies", async function () {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
 
-      expect(await lock.owner()).to.equal(owner.address);
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await expect(freelancingContract.connect(employer).applyJob(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__EmployerCantEmployHimself");
+
     });
 
-    it("Should receive and store the funds to lock", async function () {
-      const { lock, lockedAmount } = await loadFixture(
-        deployOneYearLockFixture
-      );
+    it("Should let an address apply", async function () {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
 
-      expect(await ethers.provider.getBalance(lock.target)).to.equal(
-        lockedAmount
-      );
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      expect(await freelancingContract.getApplicant(0)).to.equal(employee.address);
     });
 
-    it("Should fail if the unlockTime is not in the future", async function () {
-      // We don't use the fixture here because we want a different deployment
-      const latestTime = await time.latest();
-      const Lock = await ethers.getContractFactory("Lock");
-      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-        "Unlock time should be in the future"
-      );
+    it("Should revert if the applicant applies again", async function () {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await expect(freelancingContract.connect(employee).applyJob(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__AlreadyApplied");
+    });
+  });
+
+  describe("Approve and decline the job", function () {
+    it("Should revert if anyone else beside the employer call the approve function", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+
+      await expect(freelancingContract.connect(employee).approveJob(employee.address, 0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployer");
+
+    });
+    it("Should revert if the address has not applied", async function() {
+      const { freelancingContract, employee, employer,otherAccount } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+
+      await expect(freelancingContract.connect(employer).approveJob(otherAccount.address, 0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotApplied");
+    });
+    it("Should let the employer approve the employee", async function() {
+      const { freelancingContract, employee, employer,otherAccount } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      expect(await freelancingContract.getEmployee(0)).to.equal(employee.address);
+    });
+    it("Should revert if anyone else beside the employer call the decline function", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+
+      await expect(freelancingContract.connect(employee).declineJob(employee.address, 0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployer");
+
+    });
+    it("Should let the employer decline the employee", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+
+      await freelancingContract.connect(employer).declineJob(employee.address, 0);
+      expect(await freelancingContract.getEmployee(0)).to.equal("0x0000000000000000000000000000000000000000");
     });
   });
 
-  describe("Withdrawals", function () {
-    describe("Validations", function () {
-      it("Should revert with the right error if called too soon", async function () {
-        const { lock } = await loadFixture(deployOneYearLockFixture);
+  describe("Set the paycheck and accept it", function() {
+    it("Should let only the employer set the price", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
 
-        await expect(lock.withdraw()).to.be.revertedWith(
-          "You can't withdraw yet"
-        );
-      });
+      await expect(freelancingContract.connect(employee).setPayCheck(50,0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployer");
 
-      it("Should revert with the right error if called from another account", async function () {
-        const { lock, unlockTime, otherAccount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+    })
+    it("Should let only the employer set the price only if there is an employee ", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).declineJob(employee.address, 0);
 
-        // We can increase the time in Hardhat Network
-        await time.increaseTo(unlockTime);
+      await expect(freelancingContract.connect(employer).setPayCheck(50,0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__JobNotApproved");
 
-        // We use lock.connect() to send a transaction from another account
-        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-          "You aren't the owner"
-        );
-      });
+    })
+    it("Should let only the employer set the price only if the employer accepted the payCheck ", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
 
-      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-        const { lock, unlockTime } = await loadFixture(
-          deployOneYearLockFixture
-        );
+      await expect(freelancingContract.connect(employer).setPayCheck(50,0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__PayNotAccepted");
 
-        // Transactions are sent using the first signer by default
-        await time.increaseTo(unlockTime);
+    })
+    it("Should let only the employee use the acceptChangeOfPayCheck function", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await expect(freelancingContract.connect(employer).acceptChangeOfPayCheck(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployee");
+    })
+    it("Should let only the employer set the pay check after all the requierments are met", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
 
-        await expect(lock.withdraw()).not.to.be.reverted;
-      });
-    });
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      expect(await freelancingContract.getPayCheckInUsd(0)).to.equal(50);
+    })
+  })
+  describe("Pay the employee", function() {
+    it("Should revert if payEmployee is not called by the employee", async function() {
+      const { freelancingContract, employee, employer, otherAccount } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
 
-    describe("Events", function () {
-      it("Should emit an event on withdrawals", async function () {
-        const { lock, unlockTime, lockedAmount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+      await expect(freelancingContract.connect(otherAccount).payEmployee(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployer");
+    })
+    it("Should revert if not enough time has passed", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
 
-        await time.increaseTo(unlockTime);
+      await expect(freelancingContract.connect(employer).payEmployee(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__PayOnlyOnceAMonth");
+    })
+    it("Should revert if not enough money has passed", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      await time.increase(2593000)
 
-        await expect(lock.withdraw())
-          .to.emit(lock, "Withdrawal")
-          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-      });
-    });
+      await expect(freelancingContract.connect(employer).payEmployee(0,{value: ethers.utils.parseEther("0.001")})).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEnoughEtherProvided");
+    })
+    it("Should pay the employee if enough time has passed and the amount of ether is provided", async function() {
+      const { freelancingContract, employee, employer } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      await time.increase(2593000)
 
-    describe("Transfers", function () {
-      it("Should transfer the funds to the owner", async function () {
-        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).to.changeEtherBalances(
-          [owner, lock],
-          [lockedAmount, -lockedAmount]
-        );
-      });
-    });
+      await expect(freelancingContract.connect(employer).payEmployee(0,{value: ethers.utils.parseEther("0.04")})).to.not.reverted;
+    })
+  })
+  describe("Dismiss the employee" , function() {
+    it("The function should be only called by the employer", async function() {
+      const { freelancingContract, employee, employer, otherAccount } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      await expect(freelancingContract.connect(otherAccount).dismissEmployee(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__NotEmployer");
+    })
+    it("Should revert because the employee has not been paid", async function() {
+      const { freelancingContract, employee, employer, otherAccount } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      await expect(freelancingContract.connect(employer).dismissEmployee(0)).to.be.revertedWithCustomError(freelancingContract, "FreelancingBasicContract__CantDismissInTheFirstMonth");
+    })
+    it("Should dismiss the employee because he has been paid once", async function() {
+      const { freelancingContract, employee, employer, otherAccount } = await loadFixture(deployFreelancingContract);
+      
+      await freelancingContract.connect(employer).createJob("Java developer", "5 years of experience");
+      await freelancingContract.connect(employee).applyJob(0);
+      await freelancingContract.connect(employer).approveJob(employee.address, 0);
+      await freelancingContract.connect(employee).acceptChangeOfPayCheck(0);
+      await freelancingContract.connect(employer).setPayCheck(50,0);
+      await time.increase(2593000);
+      await freelancingContract.connect(employer).payEmployee(0,{value: ethers.utils.parseEther("0.04")});
+      
+      await expect(freelancingContract.connect(employer).dismissEmployee(0)).to.not.be.reverted;
+      
+    })
+    })
   });
-});
